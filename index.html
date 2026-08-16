@@ -539,8 +539,8 @@
               <button type="button" onclick="removeExistingFile()">파일 삭제</button>
             </div>
           </div>
-          <input type="file" id="item-file" class="form-control">
-          <small style="color: var(--text-muted); font-size: 0.75rem;">새 파일을 선택하면 기존 파일이 교체됩니다.</small>
+          <input type="file" id="item-file" class="form-control" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf">
+          <small style="color: var(--text-muted); font-size: 0.75rem;">새 파일을 선택하면 기존 파일이 교체됩니다. (이미지/PDF, 5MB 이하)</small>
         </div>
 
         <div class="modal-footer">
@@ -552,8 +552,12 @@
   </div>
 
   <script>
-    // 🔴 중요: 본인의 구글 앱스 스크립트 웹 앱 URL로 변경해 주세요!
+    // 🔴 필수 설정: 아래 두 값을 본인의 배포 정보로 채워 넣으세요.
+    // GAS_API_URL: Apps Script를 '웹 앱'으로 배포했을 때 나오는 /exec URL
+    // APP_SECRET : Apps Script 프로젝트의 스크립트 속성(Script properties)에 등록한 APP_SECRET 값과 동일해야 합니다.
+    // 이 두 값만 채워두면 이후에는 따로 입력할 필요 없이 자동으로 모든 요청에 포함됩니다.
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxKvUJ77OzQ8xHasdOSeZId_VKTp-lWSPmwlYeWitQI8UKPfNRCCw0-HLnn8MmdsJAtuA/exec";
+    const APP_SECRET = "abc123abc";
 
     const CATEGORIES = {
       flight: { label: '항공', color: 'var(--cat-flight)', icon: 'fa-plane' },
@@ -568,10 +572,11 @@
     let currentFilter = 'ALL';
 
     async function apiCall(action, payload = {}){
+      // create/update/delete는 백엔드에서 token 검증을 요구하므로 항상 함께 전송합니다.
       const response = await fetch(GAS_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, ...payload })
+        body: JSON.stringify({ action, token: APP_SECRET, ...payload })
       });
       return await response.json();
     }
@@ -754,41 +759,46 @@
       saveBtn.disabled = true;
       saveBtn.innerText = '업로드 & 저장 중...';
 
-      const fileInput = document.getElementById('item-file');
-      let fileData = null;
-      let fileName = null;
+      try {
+        const fileInput = document.getElementById('item-file');
+        let fileData = null;
+        let fileName = null;
 
-      if (fileInput.files.length > 0) {
-        const file = fileInput.files[0];
-        fileName = file.name;
-        fileData = await readFileAsBase64(file);
+        if (fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+          fileName = file.name;
+          fileData = await readFileAsBase64(file);
+        }
+
+        const itemData = {
+          id: document.getElementById('item-id').value,
+          day: document.getElementById('item-day').value,
+          time: document.getElementById('item-time').value,
+          category: document.getElementById('item-category').value,
+          cost: Number(document.getElementById('item-cost').value) || 0,
+          title: document.getElementById('item-title').value,
+          desc: document.getElementById('item-desc').value,
+          deleteFile: document.getElementById('delete-file-flag').value === 'true',
+          fileData: fileData,
+          fileName: fileName
+        };
+
+        const action = itemData.id ? 'update' : 'create';
+        const res = await apiCall(action, { data: itemData });
+
+        if (res.success) {
+          closeModal();
+          await fetchItinerary();
+        } else {
+          alert('저장 실패: ' + res.error);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('저장 중 오류가 발생했습니다.');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerText = '저장하기';
       }
-
-      const itemData = {
-        id: document.getElementById('item-id').value,
-        day: document.getElementById('item-day').value,
-        time: document.getElementById('item-time').value,
-        category: document.getElementById('item-category').value,
-        cost: Number(document.getElementById('item-cost').value) || 0,
-        title: document.getElementById('item-title').value,
-        desc: document.getElementById('item-desc').value,
-        deleteFile: document.getElementById('delete-file-flag').value === 'true',
-        fileData: fileData,
-        fileName: fileName
-      };
-
-      const action = itemData.id ? 'update' : 'create';
-      const res = await apiCall(action, { data: itemData });
-
-      if (res.success) {
-        closeModal();
-        await fetchItinerary();
-      } else {
-        alert('저장 실패: ' + res.error);
-      }
-
-      saveBtn.disabled = false;
-      saveBtn.innerText = '저장하기';
     }
 
     function editItem(id){
